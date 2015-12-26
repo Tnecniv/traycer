@@ -60,7 +60,7 @@ instance Geometry Sphere where
                 d2 = -(dot l (o - c)) - (sqrt disc) in
             if d1 <= 0 && d2 > 0 then Just [o + (scalarMult d2 l)]
             else if d1 > 0 && d2 <= 0 then Just [o + (scalarMult d1 l)]
-            else if d1 <= 0 && d2 <= 0 then Just [o + (scalarMult d1 l)]
+            else if d1 <= 0 && d2 <= 0 then Nothing
             else Just [o + (scalarMult d1 l), o + (scalarMult d2 l)]                
         where disc = (dot l (o - c))^2 - (norm $ o - c)^2 + r^2
     normalAtPoint (Sphere c r) point = Just $ Ray origin direction
@@ -116,11 +116,26 @@ closestIntersection scene r =
           minIntersectionDist = minimum closestIntersectionDists
           minIntersectionIndex = elemIndex minIntersectionDist closestIntersectionDists
 
-phong :: Ray -> Maybe Ray -> Material -> [Light] -> Color
-phong ray normal mat lights =
+pointIsInShadow :: Vec -> Scene -> [Light] -> Bool
+pointIsInShadow point scene (x:xs) =
+    case closest of Nothing -> pointIsInShadow point scene xs
+                    _ -> True
+    where lightRayDir = (normalize $ x - point)
+          epsilon = 0.001 -- My favorite small number
+          lightRay = Ray (point + (scalarMult epsilon lightRayDir)) lightRayDir
+          closest = closestIntersection scene lightRay
+
+pointIsInShadow _ _ [] = False
+
+phong :: Scene -> Ray -> Maybe Ray -> Material -> [Light] -> Color
+phong scene ray normal mat lights =
     case normal of Just normRay -> let diff = (matDiffuse mat) `scalarMult` (diffuse normRay mat lights)
-                                       spec = (matSpecular mat) `scalarMult` (specular ray normRay mat lights) in
-                                       ambient + diff + spec
+                                       spec = (matSpecular mat) `scalarMult` (specular ray normRay mat lights)
+                                       shadow = pointIsInShadow (rayOrigin normRay) scene lights in
+                                           if shadow == True then
+                                               ambient
+                                           else
+                                               ambient + diff + spec
                    Nothing -> Vec 0 0 0 -- I'm going to punt on edges for now. On polyhedra, can probably just pick any normal for edges? Investigate
     where ambient = 0.1 `scalarMult` matColor mat
 
@@ -158,7 +173,7 @@ vec2pix (Vec a b c) = PixelRGBF a b c
 
 traceRay :: Scene -> Ray -> [Light] -> PixelRGBF
 traceRay scene ray lights =
-    case closest of Just (vec, normFunc, mat) -> vec2pix $ phong ray (normFunc vec) mat lights 
+    case closest of Just (vec, normFunc, mat) -> vec2pix $ phong scene ray (normFunc vec) mat lights 
                     Nothing -> PixelRGBF 0 0 0
     where closest = closestIntersection scene ray
    
@@ -172,12 +187,11 @@ main = do
           pixelHeight = floor $ (sqrt pixelDensity) * planeHeight
           sphere1 = Sphere (Vec 1 0 2) 1
           sphere2 = Sphere (Vec (-1) 0 2) 1
-          sphere3 = Sphere (Vec 0 1 2) 1
-          mat = Material (Vec 1 0 0) 10 1 1
-          scene = [(intersectsRay sphere1, normalAtPoint sphere1, mat),
-                   (intersectsRay sphere2, normalAtPoint sphere2, (Material (Vec 0 0 1) 10 1 1)),
-                   (intersectsRay sphere3, normalAtPoint sphere3, (Material (Vec 0 1 0) 10 1 1))]
-          lights = [Vec 5 5 0]
+          sphere3 = Sphere (Vec 0 (-401) 2) 400
+          scene = [(intersectsRay sphere1, normalAtPoint sphere1, (Material (Vec (135/255) (67/255) (232/255)) 10 1 1)),
+                   (intersectsRay sphere2, normalAtPoint sphere2, (Material (Vec (255/255) (0/255) (0/255)) 10 1 1)),
+                   (intersectsRay sphere3, normalAtPoint sphere3, (Material (Vec (13/255) (181/255) (255/255)) 10 1 1))]
+          lights = [Vec 0 3 0]
           rays = castRays cam planeWidth planeHeight pixelWidth pixelHeight pixelDensity
           pixels = map (\x -> traceRay scene x lights) rays
           imageArray = listArray ((0, 0), (pixelWidth - 1, pixelHeight - 1)) pixels
